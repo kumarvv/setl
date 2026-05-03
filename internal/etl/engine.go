@@ -38,14 +38,22 @@ func (e *Engine) Run(cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("source connection: %w", err)
 	}
-	defer srcDB.Close()
+	defer func() {
+		if err := srcDB.Close(); err != nil {
+			e.log.Errorf("closing source connection: %v", err)
+		}
+	}()
 	e.log.Info("Source connected")
 
 	dstDB, err := db.Open(cfg.Target)
 	if err != nil {
 		return fmt.Errorf("target connection: %w", err)
 	}
-	defer dstDB.Close()
+	defer func() {
+		if err := dstDB.Close(); err != nil {
+			e.log.Errorf("closing target connection: %v", err)
+		}
+	}()
 	e.log.Info("Target connected")
 
 	tables := e.applyFilter(cfg.Tables())
