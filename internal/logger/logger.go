@@ -37,10 +37,11 @@ func New(logFile string, debug bool) (*Logger, error) {
 	}, nil
 }
 
-func (l *Logger) Close() {
+func (l *Logger) Close() error {
 	if l.file != nil {
-		l.file.Close()
+		return l.file.Close()
 	}
+	return nil
 }
 
 func now() string {
