@@ -48,7 +48,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "ERROR: failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
-	defer log.Close()
+	defer func() {
+		if err := log.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: closing log file: %v\n", err)
+		}
+	}()
 
 	log.Infof("SETL v%s — Simple ETL Tool", version)
 	if dryRun {
