@@ -36,7 +36,10 @@ func Open(cfg config.DBConfig) (*sql.DB, error) {
 	}
 
 	if err := db.Ping(); err != nil {
-		db.Close()
+		closeErr := db.Close()
+		if closeErr != nil {
+			return nil, fmt.Errorf("connect to %s @ %s:%d: %w (also failed to close: %v)", cfg.Type, cfg.Host, cfg.Port, err, closeErr)
+		}
 		return nil, fmt.Errorf("connect to %s @ %s:%d: %w", cfg.Type, cfg.Host, cfg.Port, err)
 	}
 
