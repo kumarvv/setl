@@ -1,0 +1,53 @@
+source:
+  type: oracle
+  host: localhost
+  port: 1521
+  database: FREE
+  username: tacs_dev
+  password: pwd
+
+target:
+  type: postgres
+  host: localhost
+  port: 5432
+  database: local_dev
+  username: vkumar
+  password: password
+
+config:
+  batch_commit_size: 1000   # rows per commit
+  max_workers: 4            # concurrent table workers
+  truncate_method: truncate # truncate | delete  (full loads only)
+
+tables:
+  # Full load — truncates target, then inserts all rows from the SQL file.
+  - ports:
+      source: itp040.sql     # path to a .sql file, or a bare table name
+      target: ports
+      load_type: full
+
+  # Incremental load — only rows where updated_at > last watermark are loaded.
+  # Watermarks are stored in .setl_watermarks.json next to the binary.
+  - terminals:
+      source: itp130.sql
+      target: terminals
+      load_type: incremental
+      key: updated_at
+
+  # Partitioned full load — divides order_id range into 8 parallel slices.
+  # Each slice runs in its own goroutine up to max_workers limit.
+  - orders:
+      source: SELECT * FROM orders
+      target: stg_orders
+      load_type: full
+      partition_column: order_id
+      partition_count: 8
+
+  # Partitioned incremental load — combines partition + watermark filtering.
+  - events:
+      source: events.sql
+      target: stg_events
+      load_type: incremental
+      key: event_ts
+      partition_column: event_id
+      partition_count: 4
