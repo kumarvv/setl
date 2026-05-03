@@ -33,7 +33,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Printf("setl v%s\n", version)
+		_, _ = fmt.Printf("setl v%s\n", version)
 		os.Exit(0)
 	}
 
@@ -45,12 +45,12 @@ func main() {
 
 	log, err := logger.New(logFile, debug)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: failed to initialize logger: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "ERROR: failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
 	defer func() {
 		if err := log.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "ERROR: closing log file: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "ERROR: closing log file: %v\n", err)
 		}
 	}()
 
@@ -99,7 +99,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stderr, `SETL v%s — Simple ETL Tool
+	_, _ = fmt.Fprintf(os.Stderr, `SETL v%s — Simple ETL Tool
 
 Usage:
   setl [flags] config.yaml [config2.yaml ...]
@@ -107,7 +107,7 @@ Usage:
 Flags:
 `, version)
 	flag.PrintDefaults()
-	fmt.Fprintln(os.Stderr, `
+	_, _ = fmt.Fprintln(os.Stderr, `
 Examples:
   setl config.yaml
   setl -dry-run config.yaml
