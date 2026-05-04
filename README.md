@@ -1,5 +1,8 @@
 # SETL — Simple ETL Tool
 
+[![Tests](https://github.com/kumarvv/setl/actions/workflows/test.yml/badge.svg)](https://github.com/kumarvv/setl/actions/workflows/test.yml)
+[![Lint](https://github.com/kumarvv/setl/actions/workflows/lint.yml/badge.svg)](https://github.com/kumarvv/setl/actions/workflows/lint.yml)
+
 A CLI-based ETL tool written in Go for transferring data between relational databases. Supports full and incremental loads, multi-threaded execution, and source partitioning for high-throughput pipelines.
 
 ## Features
