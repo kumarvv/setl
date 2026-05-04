@@ -141,6 +141,7 @@ func (l *loader) runPartitioned(tbl config.Table) (int64, error) {
 
 			l.log.Infof("[%s] Partition %d/%d: WHERE %s", tbl.Name, partNum+1, len(ranges), where)
 
+			//noinspection SqlNoDataSourceInspection
 			pQuery := fmt.Sprintf("SELECT * FROM (%s) __p%d WHERE %s", baseQuery, partNum, where)
 			cnt, err := l.transfer(tbl, pQuery, baseArgs)
 			if err != nil {
@@ -179,6 +180,7 @@ func (l *loader) partitionRanges(tbl config.Table, baseQuery string, baseArgs []
 	col := tbl.Config.PartitionColumn
 	n := tbl.Config.PartitionCount
 
+	//noinspection SqlNoDataSourceInspection
 	rangeSQL := fmt.Sprintf("SELECT MIN(%s), MAX(%s) FROM (%s) __rng", col, col, baseQuery)
 	l.log.Debugf("[%s] Range query: %s", tbl.Name, rangeSQL)
 
@@ -255,7 +257,11 @@ func (l *loader) transfer(tbl config.Table, query string, args []interface{}) (i
 	if err != nil {
 		return 0, fmt.Errorf("source query: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			l.log.Warnf("[%s] closing source rows: %v", tbl.Name, err)
+		}
+	}()
 
 	cols, err := rows.Columns()
 	if err != nil {
@@ -310,7 +316,7 @@ func (l *loader) batchInsert(name, insertSQL string, rows *sql.Rows, cols []stri
 		}
 		stmt, err := tx.Prepare(insertSQL)
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return nil, nil, fmt.Errorf("prepare insert: %w", err)
 		}
 		return tx, stmt, nil
@@ -325,12 +331,12 @@ func (l *loader) batchInsert(name, insertSQL string, rows *sql.Rows, cols []stri
 
 	for rows.Next() {
 		if err := rows.Scan(scanPtrs...); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return total, fmt.Errorf("scan row: %w", err)
 		}
 
 		if _, err := stmt.Exec(scanBuf...); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return total, fmt.Errorf("insert row: %w", err)
 		}
 
@@ -338,7 +344,7 @@ func (l *loader) batchInsert(name, insertSQL string, rows *sql.Rows, cols []stri
 		inBatch++
 
 		if int(inBatch) >= batchSize {
-			stmt.Close()
+			_ = stmt.Close()
 			if err := tx.Commit(); err != nil {
 				return total, fmt.Errorf("commit batch: %w", err)
 			}
@@ -353,18 +359,18 @@ func (l *loader) batchInsert(name, insertSQL string, rows *sql.Rows, cols []stri
 	}
 
 	if err := rows.Err(); err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return total, fmt.Errorf("reading source rows: %w", err)
 	}
 
-	stmt.Close()
+	_ = stmt.Close()
 	if inBatch > 0 {
 		if err := tx.Commit(); err != nil {
 			return total, fmt.Errorf("final commit: %w", err)
 		}
 		l.log.Infof("[%s] Final batch committed: %d rows  (total: %d)", name, inBatch, total)
 	} else {
-		tx.Rollback()
+		_ = tx.Rollback()
 	}
 
 	return total, nil
@@ -375,6 +381,7 @@ func buildInsert(table string, cols []string, style db.PlaceholderStyle) string 
 	for i := range cols {
 		ph[i] = db.Placeholder(style, i+1)
 	}
+	//noinspection SqlNoDataSourceInspection
 	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
 		table, strings.Join(cols, ", "), strings.Join(ph, ", "))
 }
@@ -395,6 +402,7 @@ func (l *loader) sourceQuery(tc config.TableConfig, keyCol string, watermark int
 		}
 		base = strings.TrimRight(strings.TrimSpace(string(data)), ";")
 	} else {
+		//noinspection SqlNoDataSourceInspection
 		base = fmt.Sprintf("SELECT * FROM %s", tc.Source)
 	}
 
@@ -404,6 +412,7 @@ func (l *loader) sourceQuery(tc config.TableConfig, keyCol string, watermark int
 
 	srcStyle := db.PlaceholderFor(l.cfg.Source.Type)
 	ph := db.Placeholder(srcStyle, 1)
+	//noinspection SqlNoDataSourceInspection
 	query := fmt.Sprintf("SELECT * FROM (%s) __etl_src WHERE %s > %s", base, keyCol, ph)
 	return query, []interface{}{watermark}, nil
 }
@@ -416,8 +425,10 @@ func (l *loader) clearTarget(tbl config.Table) error {
 	var stmt string
 	switch l.cfg.Settings.TruncateMethod {
 	case "delete":
+		//noinspection SqlNoDataSourceInspection
 		stmt = fmt.Sprintf("DELETE FROM %s", tbl.Config.Target)
 	default:
+		//noinspection SqlNoDataSourceInspection
 		stmt = fmt.Sprintf("TRUNCATE TABLE %s", tbl.Config.Target)
 	}
 	l.log.Infof("[%s] Clearing target: %s", tbl.Name, stmt)
@@ -435,8 +446,10 @@ func (l *loader) maxKeyValue(tbl config.Table) (interface{}, error) {
 		}
 		base = strings.TrimRight(strings.TrimSpace(string(data)), ";")
 	} else {
+		//noinspection SqlNoDataSourceInspection
 		base = fmt.Sprintf("SELECT * FROM %s", tc.Source)
 	}
+	//noinspection SqlNoDataSourceInspection
 	q := fmt.Sprintf("SELECT MAX(%s) FROM (%s) __etl_wm", tc.Key, base)
 	var v interface{}
 	return v, l.src.QueryRow(q).Scan(&v)
