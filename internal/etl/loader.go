@@ -15,7 +15,7 @@ import (
 	"github.com/kumarvv/setl/internal/logger"
 )
 
-const watermarkFile = ".setl_watermarks.json"
+var watermarkFile = ".setl_watermarks.json" // var so tests can redirect to a temp path
 
 type loader struct {
 	log    *logger.Logger
