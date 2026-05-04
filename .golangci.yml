@@ -1,0 +1,46 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck        # unhandled errors
+    - govet           # vet checks (printf, copylocks, …)
+    - staticcheck     # static analysis (SA, S1, …)
+    - gosimple        # simplification suggestions
+    - ineffassign     # assigned value never used
+    - unused          # unexported identifiers never used
+    - misspell        # common English spelling mistakes
+    - gofmt           # formatting
+    - gocritic        # opinionated extra checks
+
+linters-settings:
+  errcheck:
+    # Flag errors returned from type assertions (x.(T)) as well.
+    check-type-assertions: true
+    # Ignore errors returned by well-known safe no-op calls.
+    exclude-functions:
+      - (io.Closer).Close            # handled at call sites explicitly
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+    disabled-checks:
+      - commentedOutCode            # SQL noinspection comments look like commented code
+
+issues:
+  # Don't limit the number of reported issues per linter.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-rules:
+    # Test files may use unexported helpers freely.
+    - path: "_test\\.go"
+      linters: [unused, gocritic]
+
+    # The wmMu package-level var is accessed from both loader.go and loader_test.go.
+    - linters: [unused]
+      text: "wmMu"
+
+    # These assigned-but-discarded patterns are intentional rollback/close calls.
+    - linters: [ineffassign]
+      text: "_ ="

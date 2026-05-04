@@ -1,0 +1,28 @@
+name: Lint
+
+on:
+  push:
+    branches: [master, v2]
+  pull_request:
+    branches: [master, v2]
+
+jobs:
+  lint:
+    name: Go Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false          # golangci-lint manages its own cache
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
