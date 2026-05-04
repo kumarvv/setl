@@ -5,6 +5,7 @@ A CLI-based ETL tool written in Go for transferring data between relational data
 ## Features
 
 - **Multiple databases** — Oracle, MySQL, Microsoft SQL Server, PostgreSQL
+- **Central credential store** — database credentials live in `~/.setl/config.yml`, separate from ETL configs
 - **Full loads** — truncates the target table and reloads all rows
 - **Incremental loads** — tracks a watermark column and only loads new/changed rows
 - **Partitioned reads** — splits the source range into N slices and reads them in parallel
@@ -40,6 +41,90 @@ go install github.com/kumarvv/setl@latest
 
 ---
 
+## Setup
+
+### 1. Create the global database registry
+
+All database credentials are stored in a single file that is never committed to source control.
+
+```bash
+mkdir -p ~/.setl
+cp examples/global_config.yml ~/.setl/config.yml
+chmod 600 ~/.setl/config.yml   # restrict to your user only
+```
+
+Edit `~/.setl/config.yml` and add your databases:
+
+```yaml
+databases:
+  oracle_dev:
+    type: oracle
+    host: localhost
+    port: 1521
+    database: FREE
+    username: tacs_dev
+    password: your_password
+
+  postgres_local:
+    type: postgres
+    host: localhost
+    port: 5432
+    database: local_dev
+    username: vkumar
+    password: your_password
+
+  mysql_app:
+    type: mysql
+    host: mysql.internal
+    port: 3306
+    database: app_db
+    username: reader
+    password: your_password
+
+  mssql_ops:
+    type: mssql
+    host: sqlserver.internal
+    port: 1433
+    database: OperationsDB
+    username: etl_reader
+    password: your_password
+```
+
+Each key (e.g. `oracle_dev`) becomes the name you reference in ETL config files.
+
+### 2. Write an ETL config
+
+ETL configs reference databases by name — no credentials in the file:
+
+```yaml
+source: oracle_dev       # name from ~/.setl/config.yml
+target: postgres_local   # name from ~/.setl/config.yml
+
+config:
+  batch_commit_size: 1000
+  max_workers: 4
+
+tables:
+  - ports:
+      source: sql/itp040.sql
+      target: ports
+      load_type: full
+
+  - terminals:
+      source: sql/itp130.sql
+      target: terminals
+      load_type: incremental
+      key: updated_at
+```
+
+### 3. Run
+
+```bash
+setl config.yaml
+```
+
+---
+
 ## Usage
 
 ```
@@ -60,7 +145,7 @@ setl [flags] config.yaml [config2.yaml ...]
 ### Examples
 
 ```bash
-# Run all tables in a config
+# Run all tables
 setl config.yaml
 
 # Preview without writing anything
@@ -69,7 +154,7 @@ setl -dry-run config.yaml
 # Run only two specific tables
 setl -tables ports,terminals config.yaml
 
-# Override parallelism and log file
+# Override parallelism and log path
 setl -workers 8 -log /var/log/etl.log config.yaml
 
 # Run multiple config files in sequence
@@ -81,28 +166,43 @@ setl -debug config.yaml
 
 ---
 
-## Configuration
+## Global database registry (`~/.setl/config.yml`)
 
-Each YAML config file defines one source database, one target database, global settings, and a list of tables to transfer.
-
-### Full reference
+This file is loaded once at startup and shared across all ETL config files in the same invocation.
 
 ```yaml
-source:
-  type: oracle            # oracle | mysql | mssql | postgres
-  host: localhost
-  port: 1521
-  database: FREEPDB1
-  username: app_user
-  password: secret
+databases:
+  <name>:
+    type:     oracle | mysql | mssql | postgres
+    host:     <hostname or IP>
+    port:     <port number>
+    database: <database or service name>
+    schema:   <optional schema>
+    username: <username>
+    password: <password>
+```
 
-target:
-  type: postgres
-  host: localhost
-  port: 5432
-  database: warehouse
-  username: etl_user
-  password: secret
+| Field | Required | Description |
+|---|---|---|
+| `type` | yes | Database engine |
+| `host` | yes | Hostname or IP address |
+| `port` | yes | TCP port |
+| `database` | yes | Database / service / SID name |
+| `schema` | no | Default schema (optional) |
+| `username` | yes | Login username |
+| `password` | yes | Login password |
+
+> **Security tip:** Keep `~/.setl/config.yml` at mode `600`. Never commit it to source control — add `.setl/` to your global `.gitignore`.
+
+---
+
+## ETL config file reference
+
+### Top-level fields
+
+```yaml
+source: <database name>   # required — key from ~/.setl/config.yml
+target: <database name>   # required — key from ~/.setl/config.yml
 
 config:
   batch_commit_size: 1000   # rows per transaction commit (default: 1000)
@@ -119,11 +219,12 @@ tables:
       partition_count: 4              # number of partitions (default: 4)
 ```
 
-### `source` field
+### `source` field (per-table)
 
-The `source` field accepts either:
+Accepts either:
 - A **`.sql` file path** — the file contents are used as the source query
 - A **bare table name** — expands to `SELECT * FROM <name>`
+- An **inline SQL expression** — e.g. `SELECT * FROM orders WHERE status = 'DONE'`
 
 ### `load_type` options
 
@@ -134,7 +235,7 @@ The `source` field accepts either:
 
 ### Watermarks
 
-Watermarks for incremental loads are stored in `.setl_watermarks.json` in the working directory. On the first run (no watermark), all rows are loaded. After each successful run the max value of `key` is saved and used as the filter on the next run.
+Watermarks for incremental loads are saved in `.setl_watermarks.json` in the working directory. On first run (no file) all rows are loaded. After each successful run the max value of `key` is saved as the next filter boundary.
 
 ```json
 {
@@ -145,34 +246,21 @@ Watermarks for incremental loads are stored in `.setl_watermarks.json` in the wo
 
 ### Partitioning
 
-Setting `partition_column` and `partition_count` splits the source into N equal numeric ranges and reads each range in a separate goroutine. This is most useful for large tables with a numeric surrogate key.
+Setting `partition_column` splits the source into N equal numeric ranges read in parallel goroutines.
 
 - The partition column must be **numeric** (integer or float).
-- Partitioning works for both `full` and `incremental` load types.
-- Full loads still truncate the target once before all partition goroutines start.
+- Works with both `full` and `incremental` load types.
+- Full loads truncate the target once before all partition goroutines start.
 
 ---
 
-## Sample config files
+## Sample configs
 
 ### Oracle → PostgreSQL (mixed load types)
 
 ```yaml
-source:
-  type: oracle
-  host: db-oracle.internal
-  port: 1521
-  database: FREEPDB1
-  username: tacs_dev
-  password: pwd
-
-target:
-  type: postgres
-  host: db-postgres.internal
-  port: 5432
-  database: local_dev
-  username: vkumar
-  password: password
+source: oracle_dev
+target: postgres_local
 
 config:
   batch_commit_size: 500
@@ -194,21 +282,8 @@ tables:
 ### MySQL → PostgreSQL (partitioned full load)
 
 ```yaml
-source:
-  type: mysql
-  host: localhost
-  port: 3306
-  database: orders_db
-  username: reader
-  password: secret
-
-target:
-  type: postgres
-  host: localhost
-  port: 5432
-  database: warehouse
-  username: loader
-  password: secret
+source: mysql_app
+target: postgres_warehouse
 
 config:
   batch_commit_size: 2000
@@ -234,26 +309,13 @@ tables:
 ### SQL Server → PostgreSQL
 
 ```yaml
-source:
-  type: mssql
-  host: sqlserver.internal
-  port: 1433
-  database: OperationsDB
-  username: etl_reader
-  password: secret
-
-target:
-  type: postgres
-  host: localhost
-  port: 5432
-  database: analytics
-  username: loader
-  password: secret
+source: mssql_ops
+target: postgres_warehouse
 
 config:
   batch_commit_size: 1000
   max_workers: 4
-  truncate_method: delete   # use DELETE instead of TRUNCATE for full loads
+  truncate_method: delete
 
 tables:
   - customers:
@@ -272,7 +334,7 @@ tables:
 
 ## SQL source files
 
-When `source` ends in `.sql`, SETL reads the file and uses it as the source query. The file should contain a single `SELECT` statement without a trailing semicolon (or with one — SETL strips it automatically).
+When `source` ends in `.sql`, SETL reads the file and uses it as the source query. Write a single `SELECT` statement; a trailing semicolon is stripped automatically.
 
 **sql/itp040.sql**
 ```sql
@@ -284,17 +346,6 @@ SELECT
     updated_at
 FROM itp040_ports
 WHERE active_flag = 'Y'
-```
-
-**sql/itp130.sql**
-```sql
-SELECT
-    terminal_id,
-    terminal_code,
-    terminal_name,
-    port_code,
-    updated_at
-FROM itp130_terminals
 ```
 
 ---
@@ -314,18 +365,21 @@ FROM itp130_terminals
 
 ```
 setl/
-├── main.go                    Entry point, CLI flag parsing
+├── main.go                       Entry point, CLI flag parsing
 ├── go.mod
 ├── Makefile
 ├── internal/
-│   ├── config/config.go       YAML parsing and validation
-│   ├── db/db.go               Database factory, placeholder styles
+│   ├── config/
+│   │   ├── global.go             Loads ~/.setl/config.yml, resolves DB names
+│   │   └── config.go             ETL config parsing and validation
+│   ├── db/db.go                  Database factory, placeholder styles
 │   ├── etl/
-│   │   ├── engine.go          Worker-pool orchestrator
-│   │   └── loader.go          Full, incremental, and partitioned load logic
-│   └── logger/logger.go       Dual-writer logger (stdout + file)
+│   │   ├── engine.go             Worker-pool orchestrator
+│   │   └── loader.go             Full, incremental, and partitioned load logic
+│   └── logger/logger.go          Dual-writer logger (stdout + file)
 └── examples/
-    └── config.yaml            Annotated sample config
+    ├── global_config.yml         Template to copy to ~/.setl/config.yml
+    └── config.yaml               Annotated ETL config example
 ```
 
 ---
@@ -333,24 +387,17 @@ setl/
 ## Building
 
 ```bash
-# Build binary
-make build
-
-# Run with example config
-make run
-
-# Tidy dependencies
-make tidy
-
-# Clean build artifacts
-make clean
+make build   # produces ./setl
+make run     # build + run examples/config.yaml
+make tidy    # go mod tidy
+make clean   # remove binary, log, and watermark files
 ```
 
 ---
 
 ## Limitations
 
-- Partition column must be **numeric** (integer or float). Date/timestamp partitioning is not yet supported.
-- Incremental loads append new rows only. If rows in the source can be updated (not just inserted), use a target table with a unique constraint and manage deduplication separately.
-- SQL source files must contain a single `SELECT` statement with no trailing semicolon (SETL strips one if present).
-- The tool reads all columns returned by the source query and inserts them into the target table. Column names must match between source query output and target table.
+- Partition column must be **numeric**. Date/timestamp partitioning is not yet supported.
+- Incremental loads append new rows only. If rows can be updated as well as inserted, the target table needs a unique constraint and separate deduplication logic.
+- SQL source files must contain a single `SELECT` statement (SETL strips one trailing semicolon if present).
+- Column names returned by the source query must match the target table columns exactly.
