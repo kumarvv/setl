@@ -1,0 +1,63 @@
+# ~/.setl/config.yml
+#
+# Global database registry for SETL.
+# Copy this file to ~/.setl/config.yml and fill in your credentials.
+# Secure it so only your user can read it:
+#
+#   mkdir -p ~/.setl
+#   cp examples/global_config.yml ~/.setl/config.yml
+#   chmod 600 ~/.setl/config.yml
+
+databases:
+
+  # ── Oracle ────────────────────────────────────────────────────────────────
+  oracle_dev:
+    type: oracle
+    host: localhost
+    port: 1521
+    database: FREE
+    username: tacs_dev
+    password: changeme
+
+  oracle_prod:
+    type: oracle
+    host: oracle-prod.internal
+    port: 1521
+    database: PRODPDB1
+    username: etl_reader
+    password: changeme
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres_local:
+    type: postgres
+    host: localhost
+    port: 5432
+    database: local_dev
+    username: vkumar
+    password: changeme
+
+  postgres_warehouse:
+    type: postgres
+    host: warehouse.internal
+    port: 5432
+    database: warehouse
+    username: etl_loader
+    password: changeme
+
+  # ── MySQL ─────────────────────────────────────────────────────────────────
+  mysql_app:
+    type: mysql
+    host: mysql.internal
+    port: 3306
+    database: app_db
+    username: reader
+    password: changeme
+
+  # ── Microsoft SQL Server ──────────────────────────────────────────────────
+  mssql_ops:
+    type: mssql
+    host: sqlserver.internal
+    port: 1433
+    database: OperationsDB
+    username: etl_reader
+    password: changeme
