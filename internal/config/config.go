@@ -47,18 +47,19 @@ type Table struct {
 }
 
 type Config struct {
-	Source   DBConfig `yaml:"source"`
-	Target   DBConfig `yaml:"target"`
-	Settings Settings `yaml:"config"`
-	// ConfigFile is the path the config was loaded from (used for resolving relative SQL paths).
+	Source   DBConfig
+	Target   DBConfig
+	Settings Settings
+	// ConfigFile is the path the config was loaded from.
 	ConfigFile string
 	tables     []Table
 }
 
-// rawConfig mirrors the YAML structure; tables are kept as raw nodes for flexible parsing.
+// rawConfig mirrors the YAML file structure.
+// source and target are named references resolved against ~/.setl/config.yml.
 type rawConfig struct {
-	Source   DBConfig    `yaml:"source"`
-	Target   DBConfig    `yaml:"target"`
+	Source   string      `yaml:"source"`
+	Target   string      `yaml:"target"`
 	Settings Settings    `yaml:"config"`
 	Tables   []yaml.Node `yaml:"tables"`
 }
@@ -74,9 +75,26 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
 
+	if raw.Source == "" {
+		return nil, fmt.Errorf("%s: source database name is required", path)
+	}
+	if raw.Target == "" {
+		return nil, fmt.Errorf("%s: target database name is required", path)
+	}
+
+	srcDB, err := resolveDB(raw.Source)
+	if err != nil {
+		return nil, fmt.Errorf("%s: source %q: %w", path, raw.Source, err)
+	}
+
+	dstDB, err := resolveDB(raw.Target)
+	if err != nil {
+		return nil, fmt.Errorf("%s: target %q: %w", path, raw.Target, err)
+	}
+
 	cfg := &Config{
-		Source:     raw.Source,
-		Target:     raw.Target,
+		Source:     srcDB,
+		Target:     dstDB,
 		Settings:   raw.Settings,
 		ConfigFile: path,
 	}
@@ -90,13 +108,6 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Settings.TruncateMethod == "" {
 		cfg.Settings.TruncateMethod = "truncate"
-	}
-
-	if err := validateDB("source", cfg.Source); err != nil {
-		return nil, err
-	}
-	if err := validateDB("target", cfg.Target); err != nil {
-		return nil, err
 	}
 
 	// Each YAML list item is a mapping with a single key (the logical table name).
@@ -140,19 +151,6 @@ func Load(path string) (*Config, error) {
 
 func (c *Config) Tables() []Table {
 	return c.tables
-}
-
-func validateDB(label string, cfg DBConfig) error {
-	if cfg.Type == "" {
-		return fmt.Errorf("%s.type is required", label)
-	}
-	if cfg.Host == "" {
-		return fmt.Errorf("%s.host is required", label)
-	}
-	if cfg.Port == 0 {
-		return fmt.Errorf("%s.port is required", label)
-	}
-	return nil
 }
 
 func validateTable(name string, tc TableConfig) error {

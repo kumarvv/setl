@@ -1,18 +1,6 @@
-source:
-  type: oracle
-  host: localhost
-  port: 1521
-  database: FREE
-  username: tacs_dev
-  password: pwd
-
-target:
-  type: postgres
-  host: localhost
-  port: 5432
-  database: local_dev
-  username: vkumar
-  password: password
+# Database names refer to entries in ~/.setl/config.yml
+source: oracle_dev
+target: postgres_local
 
 config:
   batch_commit_size: 1000   # rows per commit
